@@ -17,25 +17,37 @@ limitations under the License.
 """ Run script to dump sharding of various combination of model and topology. """
 
 
+from typing import Sequence
+from MaxText.tests.sharding_dump import TEST_CASES
 import os
 import subprocess
-from MaxText.tests.sharding_dump import TEST_CASES
+from absl import app
 
 
-def run_single_test(model_name, topology, num_slice):
-  subprocess.run([
-      "python",
-      "-m",
-      "MaxText.tests.sharding_dump",
-      "MaxText/configs/base.yml",
-      f"compile_topology={topology}",
-      f"compile_topology_num_slices={num_slice}",
-      f"model_name={model_name}",
-  ])
+def run_single_test(model_name: str, topology: str, num_slice: str) -> None:
+  """Run test for one specific model, topology and slice."""
+  subprocess.run(
+      [
+          "python",
+          "-m",
+          "MaxText.tests.sharding_dump",
+          "MaxText/configs/base.yml",
+          f"compile_topology={topology}",
+          f"compile_topology_num_slices={num_slice}",
+          f"model_name={model_name}",
+      ],
+      check=True,
+  )
 
 
-for (model_name, topology, num_slice) in TEST_CASES:
-  json_path = f"sharding_info/{model_name}/{topology}/slice_{num_slice}/named_shardings.json"
-  if os.path.exists(json_path):
-    continue
-  run_single_test(model_name, topology, num_slice)
+def main(argv: Sequence[str]) -> None:
+  """Run all tests for every combination of model, topology and slices."""
+  for model_name, topology, num_slice in TEST_CASES:
+    json_path = f"sharding_info/{model_name}/{topology}/slice_{num_slice}/named_shardings.json"
+    if os.path.exists(json_path):
+      continue
+    run_single_test(model_name, topology, num_slice)
+
+
+if __name__ == "__main__":
+  app.run(main)
