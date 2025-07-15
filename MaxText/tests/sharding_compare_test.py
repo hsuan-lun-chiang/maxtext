@@ -17,19 +17,14 @@ limitations under the License.
 """Compare sharding of Linen model with NNX model"""
 
 
+from MaxText.tests.sharding_dump import named_shardings_to_json, load_named_sharding_json, TEST_CASES
+from MaxText.train_compile import get_shaped_inputs, get_topology_mesh, validate_config
+from MaxText import pyconfig
 import os
 import pytest
-from MaxText import pyconfig
-from MaxText.train_compile import get_shaped_inputs, get_topology_mesh, validate_config
-from MaxText.tests.sharding_dump import named_shardings_to_json, load_named_sharding_json, TEST_CASES
 
 
-def compare_named_sharding_jsons(
-    json1: dict,
-    model1_name: str,
-    json2: dict,
-    model2_name: str
-) -> bool:
+def compare_named_sharding_jsons(json1: dict, model1_name: str, json2: dict, model2_name: str) -> bool:
   """Compare two json files and print the differences if any."""
   keys1 = set(json1.keys())
   keys2 = set(json2.keys())
@@ -67,31 +62,25 @@ def compare_named_sharding_jsons(
       print(f"  spec1: {spec1}")
       print(f"  spec2: {spec2}")
 
-  if not only_in_1 \
-     and not only_in_2 \
-     and all(json1[k] == json2[k] for k in shared_keys):
-    return True
-  else:
-    return False
+  return (
+      not only_in_1
+      and not only_in_2
+      and all(json1[k] == json2[k] for k in shared_keys)
+  )
 
 
 @pytest.mark.parametrize("model_name, topology, num_slice", TEST_CASES)
-def test_sharding_dump_for_model(model_name, topology, num_slice):
-  """Test if the sharding of model in different topologiess and slices is as expected."""
+def test_sharding_dump_for_model(model_name: str, topology: str, num_slice: str) -> None:
+  """Test if the sharding of new model implementation is as expected."""
   params = [
       "/deps/MaxText/tests/sharding_compare_test",
       "MaxText/configs/base.yml",
       f"compile_topology={topology}",
       f"compile_topology_num_slices={num_slice}",
-      f"model_name={model_name}"
+      f"model_name={model_name}",
   ]
 
-  json_path = (
-      f"sharding_info/"
-      f"{model_name}/"
-      f"{topology}/"
-      f"slice_{num_slice}/named_shardings.json"
-  )
+  json_path = f"sharding_info/" f"{model_name}/" f"{topology}/" f"slice_{num_slice}/named_shardings.json"
   if not os.path.exists(json_path):
     return
 
@@ -99,10 +88,8 @@ def test_sharding_dump_for_model(model_name, topology, num_slice):
   validate_config(config)
 
   topology_mesh = get_topology_mesh(config)
-  _, _, state_mesh_shardings, _ = get_shaped_inputs(
-      topology_mesh, config)
+  _, _, state_mesh_shardings, _ = get_shaped_inputs(topology_mesh, config)
   json = named_shardings_to_json(state_mesh_shardings)
   expected_json = load_named_sharding_json(json_path)
 
-  assert compare_named_sharding_jsons(
-      expected_json, f"linen_{model_name}", json, f"nnx_{model_name}"), True
+  assert compare_named_sharding_jsons(expected_json, f"linen_{model_name}", json, f"nnx_{model_name}"), True

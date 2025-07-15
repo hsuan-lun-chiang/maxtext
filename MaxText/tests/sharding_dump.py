@@ -21,10 +21,9 @@ sharding strategies during migration to NNX.
 
 import os
 import json
-import gc
 import itertools
 from pathlib import Path
-from typing import Sequence
+from typing import List, Sequence, Union
 import jax
 from absl import app
 from jax.tree_util import tree_flatten_with_path
@@ -201,17 +200,14 @@ TOPOLOGIES = [
     # "a3"
 ]
 
-SLICES = [
-    1,
-    4,
-    8192
-]
+SLICES = [1, 4, 8192]
 
 TEST_CASES = list(itertools.product(MODEL_NAMES, TOPOLOGIES, SLICES))
 
 
-def _json_spec(spec: PartitionSpec):
+def _json_spec(spec: PartitionSpec) -> List[Union[List[str], str, None]]:
   """Convert PartitionSpec into JSON format."""
+
   def convert(entry):
     if isinstance(entry, tuple):
       return list(convert(e) for e in entry)
@@ -219,10 +215,11 @@ def _json_spec(spec: PartitionSpec):
       return None
     else:
       return str(entry)
+
   return list(convert(e) for e in spec)
 
 
-def named_shardings_to_json(train_state):
+def named_shardings_to_json(train_state) -> dict[str, dict]:
   """Extract NamedSharding instances from a trainstate and save to JSON file."""
 
   named_shardings = {}
@@ -238,14 +235,14 @@ def named_shardings_to_json(train_state):
               "axis_names": list(mesh.axis_names),
               "shape": dict(mesh.shape),
           },
-          "partition_spec": _json_spec(spec)
+          "partition_spec": _json_spec(spec),
       }
 
   print(f"Got {len(named_shardings)} NamedSharding entries.")
   return named_shardings
 
 
-def save_named_sharding_dict(output_path: str | Path, sharding_dict: dict):
+def save_named_sharding_dict(output_path: str | Path, sharding_dict: dict) -> None:
   """Save the sharding dict directly to a JSON file."""
   output_path = Path(output_path)
   output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -261,9 +258,9 @@ def load_named_sharding_json(json_path: str | Path) -> dict:
 
 
 def main(argv: Sequence[str]) -> None:
+  """Load a config that describes a model with topology and slices to be dumped."""
   jax.config.update("jax_default_prng_impl", "unsafe_rbg")
-  os.environ["LIBTPU_INIT_ARGS"] = os.environ.get(
-      "LIBTPU_INIT_ARGS", "") + " --xla_tpu_spmd_rng_bit_generator_unsafe=true"
+  os.environ["LIBTPU_INIT_ARGS"] = os.environ.get("LIBTPU_INIT_ARGS", "") + " --xla_tpu_spmd_rng_bit_generator_unsafe=true"
   print("Starting sharding_tests.py...", flush=True)
 
   config = pyconfig.initialize(argv)
@@ -278,17 +275,15 @@ def main(argv: Sequence[str]) -> None:
 
   try:
     topology_mesh = get_topology_mesh(config)
-    _, _, state_mesh_shardings, _ = get_shaped_inputs(
-        topology_mesh, config)
-  except:
+    _, _, state_mesh_shardings, _ = get_shaped_inputs(topology_mesh, config)
+  except:  # pylint: disable=bare-except
     state_mesh_shardings = {}
 
   if state_mesh_shardings == {}:
     return
 
   sharding_dict = named_shardings_to_json(state_mesh_shardings)
-  save_named_sharding_dict(
-      json_path, sharding_dict)
+  save_named_sharding_dict(json_path, sharding_dict)
   load_named_sharding_json(json_path)
   print(config.model_name, config.compile_topology)
 
