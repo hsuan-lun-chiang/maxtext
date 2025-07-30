@@ -19,18 +19,21 @@ Dump sharding of models implementing in linen with various topology to serve as 
 sharding strategies during migration to NNX.
 """
 
-import os
-import json
-import itertools
-from pathlib import Path
-from typing import List, Sequence, Union
-import jax
-from absl import app
-from jax.tree_util import tree_flatten_with_path
-from jax.sharding import NamedSharding, PartitionSpec
-from MaxText import pyconfig
-from MaxText.train_compile import get_shaped_inputs, get_topology_mesh, validate_config
 from MaxText.layers import models
+from MaxText.train_compile import get_shaped_inputs, get_topology_mesh, validate_config
+from MaxText import pyconfig
+from MaxText.train_compile import get_shaped_inputs, get_topology_mesh
+from jax.sharding import NamedSharding, PartitionSpec
+from jax.tree_util import tree_flatten_with_path
+from absl import app
+import jax
+import psutil
+from typing import List, Sequence, Union
+from pathlib import Path
+import itertools
+import json
+import gc
+import os
 
 
 Transformer = models.Transformer
@@ -43,7 +46,7 @@ MODEL_NAMES = [
     # "llama3-8b",
     # "llama3-70b",
     # "llama3.1-8b",
-    "llama3.1-70b",
+    # "llama3.1-70b",
     "llama3.1-405b",
     # "llama3.3-70b",
     # "mistral-7b",
@@ -76,19 +79,19 @@ TOPOLOGIES = [
     # "v6e-1",
     # "v6e-4",
     # "v6e-8",
-    "v6e-16",
+    # "v6e-16",
     # "v6e-32",
     # "v6e-64",
     # "v6e-128",
-    "v6e-256",
+    # "v6e-256",
     # "v5e-1",
     # "v5e-4",
     # "v5e-8",
-    "v5e-16",
+    # "v5e-16",
     # "v5e-32",
     # "v5e-64",
     # "v5e-128",
-    "v5e-256",
+    # "v5e-256",
     # "v4-8",
     # "v4-16",
     # "v4-32",
@@ -102,15 +105,15 @@ TOPOLOGIES = [
     # "v4-2048",
     # "v4-4096",
     # "v5p-8",
-    "v5p-16",
+    # "v5p-16",
     # "v5p-32",
     # "v5p-64",
     # "v5p-128",
-    "v5p-256",
+    # "v5p-256",
     # "v5p-384",
     # "v5p-512",
     # "v5p-640",
-    # "v5p-768",
+    "v5p-768",
     # "v5p-896",
     # "v5p-1024",
     # "v5p-1152",
@@ -200,7 +203,11 @@ TOPOLOGIES = [
     # "a3"
 ]
 
-SLICES = [1, 4, 8192]
+SLICES = [
+    # 1,
+    # 4,
+    8192
+]
 
 TEST_CASES = list(itertools.product(MODEL_NAMES, TOPOLOGIES, SLICES))
 
@@ -258,34 +265,38 @@ def load_named_sharding_json(json_path: str | Path) -> dict:
 
 
 def main(argv: Sequence[str]) -> None:
-  """Load a config that describes a model with topology and slices to be dumped."""
-  jax.config.update("jax_default_prng_impl", "unsafe_rbg")
-  os.environ["LIBTPU_INIT_ARGS"] = os.environ.get("LIBTPU_INIT_ARGS", "") + " --xla_tpu_spmd_rng_bit_generator_unsafe=true"
-  print("Starting sharding_tests.py...", flush=True)
+  while True:
+    for (model_name, topology, num_slice) in TEST_CASES:
+      params = [
+          "MaxText.tests.sharding_dump",
+          "MaxText/configs/base.yml",
+          f"compile_topology={topology}",
+          f"compile_topology_num_slices={num_slice}",
+          f"model_name={model_name}",
+      ]
+      config = pyconfig.initialize(params)
+      validate_config(config)
+      json_path = (
+          f"sharding_info/{config.model_name}/"
+          f"{config.compile_topology}/"
+          f"slice_{config.compile_topology_num_slices}/"
+          f"named_shardings.json"
+      )
 
-  config = pyconfig.initialize(argv)
-  validate_config(config)
+      try:
+        pass
+        topology_mesh = get_topology_mesh(config)
+        # _, _, state_mesh_shardings, _ = get_shaped_inputs(
+        #   topology_mesh, config)
+      except:  # pylint: disable=bare-except
+        pass
+        # state_mesh_shardings = {}
 
-  json_path = (
-      f"sharding_info/{config.model_name}/"
-      f"{config.compile_topology}/"
-      f"slice_{config.compile_topology_num_slices}/"
-      f"named_shardings.json"
-  )
-
-  try:
-    topology_mesh = get_topology_mesh(config)
-    _, _, state_mesh_shardings, _ = get_shaped_inputs(topology_mesh, config)
-  except:  # pylint: disable=bare-except
-    state_mesh_shardings = {}
-
-  if state_mesh_shardings == {}:
-    return
-
-  sharding_dict = named_shardings_to_json(state_mesh_shardings)
-  save_named_sharding_dict(json_path, sharding_dict)
-  load_named_sharding_json(json_path)
-  print(config.model_name, config.compile_topology)
+      jax.clear_caches()
+      jax.clear_backends()
+      gc.collect()
+      process = psutil.Process(os.getpid())
+      print(f"Memory used: {process.memory_info().rss / (1024 ** 2):.2f} MB")
 
 
 if __name__ == "__main__":
