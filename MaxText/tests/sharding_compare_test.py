@@ -17,11 +17,24 @@ limitations under the License.
 """Compare expected sharding of models with actual sharding of models."""
 
 
+import hashlib
 from MaxText.train_compile import get_shaped_inputs, get_topology_mesh, validate_config
 from MaxText.tests.sharding_dump import named_shardings_to_json, load_named_sharding_json, TEST_CASES
 from MaxText import pyconfig
 import pytest
 import os
+import json
+
+
+def compute_checksum(d: dict) -> str:
+  """Compute a checksum (SHA256) of a dictionary."""
+  # Serialize the dictionary into a JSON string (ensuring consistent ordering of keys)
+  json_str = json.dumps(d, sort_keys=True)
+
+  # Compute the SHA256 checksum of the serialized string
+  checksum = hashlib.sha256(json_str.encode("utf-8")).hexdigest()
+
+  return checksum
 
 
 def compare_named_sharding_jsons(json1: dict, model1_name: str, json2: dict, model2_name: str) -> bool:
@@ -85,7 +98,14 @@ def test_sharding_dump_for_model(model_name: str, topology: str, num_slice: str)
 
   topology_mesh = get_topology_mesh(config)
   _, _, state_mesh_shardings, _ = get_shaped_inputs(topology_mesh, config)
-  json = named_shardings_to_json(state_mesh_shardings)
+  actual_json = named_shardings_to_json(state_mesh_shardings)
   expected_json = load_named_sharding_json(json_path)
 
-  assert compare_named_sharding_jsons(expected_json, f"expected_{model_name}", json, f"actual_{model_name}"), True
+  actual_checksum = compute_checksum(actual_json)
+  expected_checksum2 = compute_checksum(expected_json)
+  result = actual_checksum == expected_checksum2
+
+  if not result:
+    compare_named_sharding_jsons(expected_json, f"expected_{model_name}", actual_json, f"actual_{model_name}")
+
+  assert result
